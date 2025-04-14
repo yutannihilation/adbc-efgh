@@ -1,0 +1,43 @@
+[package]
+name = "adbc-efgh"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# for ADBC
+adbc_core = { version = "0.17.0", features = ["driver_manager"] }
+arrow-ipc = "54.3.1"
+bytes = "1.10.1"
+
+# for HTTP/3
+h3 = { git = "https://github.com/hyperium/h3", features = ["tracing"] }
+h3-quinn = { git = "https://github.com/hyperium/h3", features = ["tracing"] }
+http = "1"
+quinn = { version = "0.11", default-features = false, features = [
+    "runtime-tokio",
+    "rustls",
+    "ring",
+] }
+rustls = { version = "0.23", default-features = false, features = [
+    "logging",
+    "ring",
+    "std",
+] }
+
+# for HTTP/2
+hyper = { version = "1.6.0", features = ["http2", "server"] }
+
+# for asnyc handling
+tokio = { version = "1.44", features = ["full"] }
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "fmt",
+    "ansi",
+    "env-filter",
+    "time",
+    "tracing-log",
+] }
+tokio-util = { version = "0.7.14", features = ["io"] }
+tokio-stream = "0.1.17"
+http-body-util = "0.1.3"
