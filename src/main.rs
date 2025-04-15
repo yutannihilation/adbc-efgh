@@ -1,11 +1,13 @@
 // Based on this h3's example code: https://github.com/hyperium/h3/blob/master/examples/server.rs
 
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 use http::StatusCode;
+use hyper::{server::conn::http2, service::service_fn};
+use hyper_util::rt::{TokioExecutor, TokioIo};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use tokio::{fs::File, io::AsyncReadExt, net::TcpListener};
+use tokio::{io::AsyncReadExt, net::TcpListener};
 use tracing::{error, info, trace_span};
 
 use h3::server::RequestResolver;
@@ -52,44 +54,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // handle incoming connections and requests
 
-    while let Some(new_conn) = endpoint_http3.accept().await {
-        trace_span!("New connection being attempted");
+    loop {
+        tokio::select! {
+            Ok((stream, _)) = endpoint_http2.accept() => {
+                trace_span!("New HTTP/2 connection being attempted");
 
-        tokio::spawn(async move {
-            match new_conn.await {
-                Ok(conn) => {
-                    info!("new connection established");
+                let io = TokioIo::new(stream);
 
-                    let mut h3_conn = h3::server::Connection::new(h3_quinn::Connection::new(conn))
+                // handle_http2_request
+                tokio::task::spawn(async move {
+                    // Handle the connection from the client using HTTP/2 with an executor and pass any
+                    // HTTP requests received on that connection to the `hello` function
+                    if let Err(err) = http2::Builder::new(TokioExecutor::new())
+                        .serve_connection(io, service_fn(handle_http2_request))
                         .await
-                        .unwrap();
+                    {
+                        eprintln!("Error serving connection: {}", err);
+                    }
+                });
+            }
+            // HTTP/3
+            Some(new_conn) = endpoint_http3.accept() => {
+                trace_span!("New HTTP/3 connection being attempted");
 
-                    loop {
-                        match h3_conn.accept().await {
-                            Ok(Some(resolver)) => {
-                                tokio::spawn(async {
-                                    if let Err(e) = handle_http3_request(resolver).await {
-                                        error!("handling request failed: {}", e);
+                tokio::spawn(async move {
+                    match new_conn.await {
+                        Ok(conn) => {
+                            info!("new connection established");
+
+                            let mut h3_conn = h3::server::Connection::new(h3_quinn::Connection::new(conn))
+                                .await
+                                .unwrap();
+
+                            loop {
+                                match h3_conn.accept().await {
+                                    Ok(Some(resolver)) => {
+                                        tokio::spawn(async {
+                                            if let Err(e) = handle_http3_request(resolver).await {
+                                                error!("handling request failed: {}", e);
+                                            }
+                                        });
                                     }
-                                });
-                            }
-                            // indicating that the remote sent a goaway frame
-                            // all requests have been processed
-                            Ok(None) => {
-                                break;
-                            }
-                            Err(err) => {
-                                error!("error on accept {}", err);
-                                break;
+                                    // indicating that the remote sent a goaway frame
+                                    // all requests have been processed
+                                    Ok(None) => {
+                                        break;
+                                    }
+                                    Err(err) => {
+                                        error!("error on accept {}", err);
+                                        break;
+                                    }
+                                }
                             }
                         }
+                        Err(err) => {
+                            error!("accepting connection failed: {:?}", err);
+                        }
                     }
-                }
-                Err(err) => {
-                    error!("accepting connection failed: {:?}", err);
-                }
+                });
             }
-        });
+        }
     }
 
     // shut down gracefully
@@ -123,7 +147,7 @@ where
 
     let mut reader = tokio_util::io::StreamReader::new(tokio_stream::iter(vec![
         tokio::io::Result::Ok(Bytes::from_static(b"Hello, ")),
-        tokio::io::Result::Ok(Bytes::from_static(b"world")),
+        tokio::io::Result::Ok(Bytes::from_static(b"world ")),
         tokio::io::Result::Ok(Bytes::from_static(b"of HTTP/3!")),
     ]));
 
