@@ -18,7 +18,8 @@ use http_body_util::Full;
 
 const SERVER_CERT: &[u8] = include_bytes!("cert/server.cert");
 const SERVER_KEY: &[u8] = include_bytes!("cert/server.key");
-const ADDRESS: &str = "[::1]:443";
+const ADDRESS: &str = "[::1]";
+const PORT: &str = "443";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -46,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tls_config_http2.alpn_protocols = vec![b"h2".into()];
     let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config_http2));
 
-    let address = ADDRESS.parse()?;
+    let address = format!("{ADDRESS}:{PORT}").parse()?;
 
     let endpoint_http3 = quinn::Endpoint::server(server_config_http3, address)?;
     let endpoint_http2 = TcpListener::bind(address).await?;
@@ -176,7 +177,10 @@ where
 async fn handle_http2_request(
     _: http::Request<hyper::body::Incoming>,
 ) -> Result<http::Response<Full<Bytes>>, std::convert::Infallible> {
-    Ok(http::Response::new(Full::new(Bytes::from(
-        "Hello, world of HTTP/2!",
-    ))))
+    let response = http::Response::builder()
+        .header("Alt-Svc", format!(r#"h3=":{PORT}"; ma=60"#))
+        .body(Full::new(Bytes::from("Hello, world of HTTP/2!")))
+        .unwrap();
+
+    Ok(response)
 }
