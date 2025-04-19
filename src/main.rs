@@ -48,7 +48,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             trace_span!("New HTTP/2 connection being attempted");
 
-            // handle_http2_request
             tokio::task::spawn(async move {
                 let io = match tls_acceptor.accept(stream).await {
                     Ok(tls_stream) => TokioIo::new(tls_stream),
@@ -58,8 +57,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
 
-                // Handle the connection from the client using HTTP/2 with an executor and pass any
-                // HTTP requests received on that connection to the `hello` function
                 if let Err(err) = http2::Builder::new(TokioExecutor::new())
                     .serve_connection(io, service_fn(handle_http2_request))
                     .await
@@ -112,10 +109,7 @@ async fn handle_http2_request(
         .into_iter(),
     );
 
-    let response = http::Response::builder()
-        .body(body)
-        // .body(Full::new(Bytes::from("Hello, world of HTTP/2!")))
-        .unwrap();
+    let response = http::Response::builder().body(body).unwrap();
 
     Ok(response)
 }
