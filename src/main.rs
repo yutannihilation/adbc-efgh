@@ -16,6 +16,8 @@ const SERVER_KEY: &[u8] = include_bytes!("cert/localhost+2-key.pem");
 const ADDRESS: &str = "[::1]";
 const PORT: &str = "443";
 
+mod duckdb;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -39,6 +41,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let endpoint_http2 = TcpListener::bind(address).await?;
 
     info!("listening on {ADDRESS}:{PORT}");
+
+    let conn = duckdb::get_duckdb_connection()?;
 
     // handle incoming connections and requests
 
