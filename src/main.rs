@@ -11,8 +11,6 @@ use tokio_rustls::TlsAcceptor;
 
 use tracing::{info, trace_span};
 
-use http_body_util::{Full, StreamBody};
-
 const SERVER_CERT: &[u8] = include_bytes!("cert/localhost+2.pem");
 const SERVER_KEY: &[u8] = include_bytes!("cert/localhost+2-key.pem");
 const ADDRESS: &str = "[::1]";
