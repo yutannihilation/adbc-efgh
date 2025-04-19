@@ -5,7 +5,7 @@ use std::{net::SocketAddr, sync::Arc};
 use bytes::Bytes;
 use hyper::{server::conn::http2, service::service_fn};
 use hyper_util::rt::{TokioExecutor, TokioIo};
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
@@ -13,8 +13,8 @@ use tracing::{info, trace_span};
 
 use http_body_util::Full;
 
-const SERVER_CERT: &[u8] = include_bytes!("cert/server.cert");
-const SERVER_KEY: &[u8] = include_bytes!("cert/server.key");
+const SERVER_CERT: &[u8] = include_bytes!("cert/localhost+2.pem");
+const SERVER_KEY: &[u8] = include_bytes!("cert/localhost+2-key.pem");
 const ADDRESS: &str = "[::1]";
 const PORT: &str = "443";
 
@@ -27,8 +27,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_max_level(tracing::Level::INFO)
         .init();
 
-    let cert = CertificateDer::from(SERVER_CERT);
-    let key = PrivateKeyDer::try_from(SERVER_KEY)?;
+    let cert = CertificateDer::from_pem_slice(SERVER_CERT).unwrap();
+    let key = PrivateKeyDer::from_pem_slice(SERVER_KEY)?;
 
     let mut tls_config = rustls::ServerConfig::builder()
         .with_no_client_auth()
