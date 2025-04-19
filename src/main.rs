@@ -11,7 +11,7 @@ use tokio_rustls::TlsAcceptor;
 
 use tracing::{info, trace_span};
 
-use http_body_util::Full;
+use http_body_util::{Full, StreamBody};
 
 const SERVER_CERT: &[u8] = include_bytes!("cert/localhost+2.pem");
 const SERVER_KEY: &[u8] = include_bytes!("cert/localhost+2-key.pem");
@@ -38,10 +38,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
 
     let address: SocketAddr = format!("{ADDRESS}:{PORT}").parse()?;
-
     let endpoint_http2 = TcpListener::bind(address).await?;
 
-    info!("listening on {ADDRESS}");
+    info!("listening on {ADDRESS}:{PORT}");
 
     // handle incoming connections and requests
 
@@ -74,11 +73,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
+struct Hello<I: Iterator<Item = Bytes>> {
+    msg: I,
+}
+
+// In order to use self.msg as ref mut, this is necessary.
+impl<I: Iterator<Item = Bytes>> Unpin for Hello<I> {}
+
+impl<I: Iterator<Item = Bytes>> hyper::body::Body for Hello<I> {
+    type Data = Bytes;
+
+    type Error = std::convert::Infallible;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
+        match self.msg.next() {
+            Some(bytes) => std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(bytes)))),
+            None => std::task::Poll::Ready(None),
+        }
+    }
+}
+
+impl<I: Iterator<Item = Bytes>> Hello<I> {
+    fn new(msg: I) -> Self {
+        Self { msg }
+    }
+}
+
 async fn handle_http2_request(
     _: http::Request<hyper::body::Incoming>,
-) -> Result<http::Response<Full<Bytes>>, std::convert::Infallible> {
+) -> Result<http::Response<Hello<std::vec::IntoIter<bytes::Bytes>>>, std::convert::Infallible> {
+    let body = Hello::new(
+        vec![
+            Bytes::from_static(b"Hello, "),
+            Bytes::from_static(b"world "),
+            Bytes::from_static(b"of HTTP/2!"),
+        ]
+        .into_iter(),
+    );
+
     let response = http::Response::builder()
-        .body(Full::new(Bytes::from("Hello, world of HTTP/2!")))
+        .body(body)
+        // .body(Full::new(Bytes::from("Hello, world of HTTP/2!")))
         .unwrap();
 
     Ok(response)
