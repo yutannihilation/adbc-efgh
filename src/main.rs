@@ -85,7 +85,7 @@ impl<I: Iterator<Item = Bytes>> hyper::body::Body for Hello<I> {
 
     fn poll_frame(
         mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        _cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
         match self.msg.next() {
             Some(bytes) => std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(bytes)))),
