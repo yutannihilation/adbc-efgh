@@ -98,8 +98,14 @@ impl<I: Iterator<Item = Bytes>> Hello<I> {
 }
 
 async fn handle_http2_request(
-    _: http::Request<hyper::body::Incoming>,
+    req: http::Request<hyper::body::Incoming>,
 ) -> Result<http::Response<Hello<std::vec::IntoIter<bytes::Bytes>>>, std::convert::Infallible> {
+    if req.uri().path() != "/" {
+        let body = Hello::new(vec![].into_iter());
+        let response = http::Response::builder().status(404).body(body).unwrap();
+        return Ok(response);
+    }
+
     let body = Hello::new(
         vec![
             Bytes::from_static(b"Hello, "),
