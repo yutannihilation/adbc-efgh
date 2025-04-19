@@ -8,7 +8,7 @@ No idea. I'm still searching for cool words for these alphabets!
 
 ## Update self-signed certificate
 
-Use [cfssl](https://github.com/cloudflare/cfssl).
+Use [mkcert](https://github.com/FiloSottile/mkcert).
 
 ```sh
 mkdir -p src/cert/
