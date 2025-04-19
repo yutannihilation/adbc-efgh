@@ -36,3 +36,44 @@ pub(crate) fn get_duckdb_connection()
     let conn = db.new_connection()?;
     Ok(Arc::new(Mutex::new(conn)))
 }
+
+struct RecordBatchBody<'a, T: arrow::record_batch::RecordBatchReader>{
+    reader: T,
+    buf: &'a mut [u8],
+    writer: arrow_ipc::writer::StreamWriter<&'a mut Vec<u8>>,
+}
+
+impl<T: arrow::record_batch::RecordBatchReader> hyper::body::Body for RecordBatchBody<T> {
+    type Data = bytes::Bytes;
+
+    type Error = arrow::error::ArrowError;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
+        match self.reader.next() {
+            Some(bytes) => {
+                let mut bytes = 
+                std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(bytes))))
+            }
+            None => std::task::Poll::Ready(None),
+        }
+    }
+}
+
+struct DuckDBService {
+    conn: Arc<ManagedConnection>,
+}
+
+impl hyper::service::Service<http::Request<hyper::body::Incoming>> for DuckDBService {
+    type Response;
+
+    type Error;
+
+    type Future;
+
+    fn call(&self, req: Request) -> Self::Future {
+        todo!()
+    }
+}
