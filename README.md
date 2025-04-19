@@ -2,7 +2,7 @@
 
 ## Okay, I know [ADBC]. But, what does "efgh" stand for?
 
-No idea. The last "h" is probably for "HTTP/3"? I'm still searching for cool words for "e", "f", and "g"!
+No idea. I'm still searching for cool words for these alphabets!
 
 [ADBC]: https://arrow.apache.org/adbc/current/index.html
 
