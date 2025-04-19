@@ -78,7 +78,6 @@ async fn handle_http2_request(
     _: http::Request<hyper::body::Incoming>,
 ) -> Result<http::Response<Full<Bytes>>, std::convert::Infallible> {
     let response = http::Response::builder()
-        .header("Alt-Svc", format!(r#"h3=":{PORT}"; ma=2592000"#))
         .body(Full::new(Bytes::from("Hello, world of HTTP/2!")))
         .unwrap();
 
