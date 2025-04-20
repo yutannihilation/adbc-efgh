@@ -3,7 +3,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use adbc_core::{Connection as _, Statement as _};
-use bytes::Bytes;
 use duckdb::RecordBatchBody;
 use hyper::{server::conn::http2, service::service_fn};
 use hyper_util::rt::{TokioExecutor, TokioIo};

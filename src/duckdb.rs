@@ -1,5 +1,4 @@
 use std::{
-    io::Read,
     sync::{Arc, OnceLock},
     vec::IntoIter,
 };
@@ -8,8 +7,8 @@ use adbc_core::{Database as _, Driver as _, driver_manager::ManagedConnection};
 use arrow::array::RecordBatch;
 use arrow_ipc::writer::StreamWriter;
 use ringbuf::{
-    CachingProd, HeapCons, HeapProd, HeapRb, SharedRb,
-    traits::{Consumer, Producer, Split},
+    HeapCons, HeapProd, HeapRb,
+    traits::{Consumer, Split},
 };
 use tokio::sync::Mutex;
 
@@ -132,57 +131,3 @@ impl hyper::body::Body for RecordBatchBody {
         }
     }
 }
-
-struct DuckDBService {
-    conn: Arc<Mutex<ManagedConnection>>,
-}
-
-// impl hyper::service::Service<http::Request<hyper::body::Incoming>> for DuckDBService {
-//     type Response = http::Response<RecordBatchBody>;
-
-//     type Error = std::convert::Infallible;
-
-//     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
-
-//     fn call(&self, req: http::Request<hyper::body::Incoming>) -> Self::Future {
-//         let fut = async move {
-//             let mut guard = self.conn.lock().await;
-
-//             let mut stmt = match guard.new_statement() {
-//                 Ok(stmt) => stmt,
-//                 Err(e) => todo!(),
-//             };
-
-//             match stmt.set_sql_query("FROM 'tmp.csv'") {
-//                 Ok(_) => {}
-//                 Err(e) => todo!(),
-//             };
-
-//             let record_batch_reader = match stmt.execute() {
-//                 Ok(result) => result,
-//                 Err(e) => todo!(),
-//             };
-
-//             let mut result_bytes = 0usize;
-//             let mut batches = Vec::new();
-//             for b in record_batch_reader {
-//                 match b {
-//                     Ok(b) => {
-//                         result_bytes += b.get_array_memory_size();
-//                         batches.push(b);
-//                     }
-//                     Err(e) => {
-//                         todo!()
-//                         // return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
-//                     }
-//                 }
-//             }
-
-//             let body = RecordBatchBody { batches };
-
-//             Ok(http::Response::builder().body(body).unwrap())
-//         };
-
-//         Box::pin(fut)
-//     }
-// }
