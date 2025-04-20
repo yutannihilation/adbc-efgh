@@ -1,4 +1,7 @@
-use std::sync::{Arc, OnceLock};
+use std::{
+    sync::{Arc, OnceLock},
+    vec::IntoIter,
+};
 
 use adbc_core::{
     Connection as _, Database as _, Driver as _, Statement as _, driver_manager::ManagedConnection,
@@ -38,9 +41,9 @@ pub(crate) fn get_duckdb_connection()
     match std::fs::exists(DUCKDB_DYLIB) {
         Ok(true) => {}
         Ok(false) => {
-            return Err("Please download the duckdb and copy it to {DUCKDB_DYLIB}".into());
+            return Err(format!("Please download the duckdb and copy it to {DUCKDB_DYLIB}").into());
         }
-        Err(e) => return Err("Unexpected error: {e:?}".into()),
+        Err(e) => return Err(format!("Unexpected error: {e:?}").into()),
     }
 
     let mut driver = adbc_core::driver_manager::ManagedDriver::load_dynamic_from_filename(
@@ -62,7 +65,9 @@ pub(crate) fn get_duckdb_connection()
 
 pub struct RecordBatchBody {
     // batches: Vec<RecordBatch>,
-    pub reader: Box<dyn RecordBatchReader + Send>,
+    // pub reader: Box<dyn RecordBatchReader + Send>,
+    pub result_bytes: usize,
+    pub batches: IntoIter<RecordBatch>,
 }
 
 impl hyper::body::Body for RecordBatchBody {
@@ -74,10 +79,8 @@ impl hyper::body::Body for RecordBatchBody {
         mut self: std::pin::Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
-        match self.reader.next() {
-            Some(result) => {
-                let batch = result?;
-
+        match self.batches.next() {
+            Some(batch) => {
                 // TODO: this is super inefficient to create a buffer and writer for every record batch, but let's start from here...
                 let mut bytes: Vec<u8> = Vec::with_capacity(batch.get_array_memory_size());
                 let mut writer = StreamWriter::try_new(&mut bytes, &*batch.schema()).unwrap();

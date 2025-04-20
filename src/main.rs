@@ -83,8 +83,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 Err(e) => todo!(),
                             };
 
+                            let mut result_bytes = 0usize;
+                            let mut batches = Vec::new();
+                            for b in record_batch_reader {
+                                match b {
+                                    Ok(b) => {
+                                        result_bytes += b.get_array_memory_size();
+                                        batches.push(b);
+                                    }
+                                    Err(e) => todo!(),
+                                }
+                            }
+
+                            let batches = batches.into_iter();
+
                             let body = RecordBatchBody {
-                                reader: Box::new(record_batch_reader),
+                                result_bytes,
+                                batches,
                             };
 
                             let response = http::Response::builder().body(body).unwrap();
