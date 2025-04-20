@@ -1,4 +1,4 @@
-use std::{pin::Pin, sync::Arc};
+use std::sync::{Arc, OnceLock};
 
 use adbc_core::{
     Connection as _, Database as _, Driver as _, Statement as _, driver_manager::ManagedConnection,
@@ -9,6 +9,8 @@ use arrow::{
 };
 use arrow_ipc::writer::StreamWriter;
 use tokio::sync::Mutex;
+
+static DUCKDB_CONN: OnceLock<Arc<Mutex<ManagedConnection>>> = OnceLock::new();
 
 #[cfg(target_os = "windows")]
 pub(crate) const DUCKDB_DYLIB: &str = "duckdb/duckdb.dll";
@@ -26,9 +28,18 @@ pub(crate) struct RunQueryParams {
 
 pub(crate) fn get_duckdb_connection()
 -> Result<Arc<Mutex<ManagedConnection>>, Box<dyn std::error::Error>> {
+    // get_init() cannot return error from inside the closure, so use get() and set().
+    // This risks the double init, but assuming it's not critical (the second connection is just closed).
+    // But, there might be better way...
+    if let Some(conn) = DUCKDB_CONN.get() {
+        return Ok(conn.clone());
+    }
+
     match std::fs::exists(DUCKDB_DYLIB) {
         Ok(true) => {}
-        Ok(false) => return Err("Please download the duckdb and copy it to {DUCKDB_DYLIB}".into()),
+        Ok(false) => {
+            return Err("Please download the duckdb and copy it to {DUCKDB_DYLIB}".into());
+        }
         Err(e) => return Err("Unexpected error: {e:?}".into()),
     }
 
@@ -40,14 +51,18 @@ pub(crate) fn get_duckdb_connection()
 
     let mut db = driver.new_database()?;
 
-    let conn = db.new_connection()?;
-    Ok(Arc::new(Mutex::new(conn)))
+    let conn = Arc::new(Mutex::new(db.new_connection()?));
+    match DUCKDB_CONN.set(conn.clone()) {
+        Ok(_) => {}
+        Err(_) => return Err("Failed to initialize the connection".into()),
+    };
+
+    Ok(conn)
 }
 
 pub struct RecordBatchBody {
     // batches: Vec<RecordBatch>,
-    pub reader: Box<dyn RecordBatchReader>,
-    pub conn: Arc<Mutex<ManagedConnection>>,
+    pub reader: Box<dyn RecordBatchReader + Send>,
 }
 
 impl hyper::body::Body for RecordBatchBody {

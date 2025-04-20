@@ -44,8 +44,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("listening on {ADDRESS}:{PORT}");
 
-    let conn = duckdb::get_duckdb_connection()?;
-
     // handle incoming connections and requests
 
     loop {
@@ -63,12 +61,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
 
-                let conn = conn.clone();
-
                 if let Err(err) = http2::Builder::new(TokioExecutor::new())
                     .serve_connection(
                         io,
                         service_fn(move |req| async {
+                            let conn = duckdb::get_duckdb_connection().unwrap();
                             let mut guard = conn.lock().await;
 
                             let mut stmt = match guard.new_statement() {
@@ -92,7 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                             let response = http::Response::builder().body(body).unwrap();
 
-                            Ok(response)
+                            Ok::<_, std::convert::Infallible>(response)
                         }),
                     )
                     .await
