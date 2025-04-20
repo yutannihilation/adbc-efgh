@@ -1,6 +1,13 @@
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 
-use adbc_core::{Database as _, Driver as _, driver_manager::ManagedConnection};
+use adbc_core::{
+    Connection as _, Database as _, Driver as _, Statement as _, driver_manager::ManagedConnection,
+};
+use arrow::{
+    array::{RecordBatch, RecordBatchReader},
+    record_batch,
+};
+use arrow_ipc::writer::StreamWriter;
 use tokio::sync::Mutex;
 
 #[cfg(target_os = "windows")]
@@ -37,13 +44,13 @@ pub(crate) fn get_duckdb_connection()
     Ok(Arc::new(Mutex::new(conn)))
 }
 
-struct RecordBatchBody<'a, T: arrow::record_batch::RecordBatchReader>{
-    reader: T,
-    buf: &'a mut [u8],
-    writer: arrow_ipc::writer::StreamWriter<&'a mut Vec<u8>>,
+pub struct RecordBatchBody {
+    // batches: Vec<RecordBatch>,
+    pub reader: Box<dyn RecordBatchReader>,
+    pub conn: Arc<Mutex<ManagedConnection>>,
 }
 
-impl<T: arrow::record_batch::RecordBatchReader> hyper::body::Body for RecordBatchBody<T> {
+impl hyper::body::Body for RecordBatchBody {
     type Data = bytes::Bytes;
 
     type Error = arrow::error::ArrowError;
@@ -53,9 +60,16 @@ impl<T: arrow::record_batch::RecordBatchReader> hyper::body::Body for RecordBatc
         _cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
         match self.reader.next() {
-            Some(bytes) => {
-                let mut bytes = 
-                std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(bytes))))
+            Some(result) => {
+                let batch = result?;
+
+                // TODO: this is super inefficient to create a buffer and writer for every record batch, but let's start from here...
+                let mut bytes: Vec<u8> = Vec::with_capacity(batch.get_array_memory_size());
+                let mut writer = StreamWriter::try_new(&mut bytes, &*batch.schema()).unwrap();
+                writer.write(&batch)?;
+                drop(writer);
+
+                std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(bytes.into()))))
             }
             None => std::task::Poll::Ready(None),
         }
@@ -63,17 +77,55 @@ impl<T: arrow::record_batch::RecordBatchReader> hyper::body::Body for RecordBatc
 }
 
 struct DuckDBService {
-    conn: Arc<ManagedConnection>,
+    conn: Arc<Mutex<ManagedConnection>>,
 }
 
-impl hyper::service::Service<http::Request<hyper::body::Incoming>> for DuckDBService {
-    type Response;
+// impl hyper::service::Service<http::Request<hyper::body::Incoming>> for DuckDBService {
+//     type Response = http::Response<RecordBatchBody>;
 
-    type Error;
+//     type Error = std::convert::Infallible;
 
-    type Future;
+//     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
-    fn call(&self, req: Request) -> Self::Future {
-        todo!()
-    }
-}
+//     fn call(&self, req: http::Request<hyper::body::Incoming>) -> Self::Future {
+//         let fut = async move {
+//             let mut guard = self.conn.lock().await;
+
+//             let mut stmt = match guard.new_statement() {
+//                 Ok(stmt) => stmt,
+//                 Err(e) => todo!(),
+//             };
+
+//             match stmt.set_sql_query("FROM 'tmp.csv'") {
+//                 Ok(_) => {}
+//                 Err(e) => todo!(),
+//             };
+
+//             let record_batch_reader = match stmt.execute() {
+//                 Ok(result) => result,
+//                 Err(e) => todo!(),
+//             };
+
+//             let mut result_bytes = 0usize;
+//             let mut batches = Vec::new();
+//             for b in record_batch_reader {
+//                 match b {
+//                     Ok(b) => {
+//                         result_bytes += b.get_array_memory_size();
+//                         batches.push(b);
+//                     }
+//                     Err(e) => {
+//                         todo!()
+//                         // return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+//                     }
+//                 }
+//             }
+
+//             let body = RecordBatchBody { batches };
+
+//             Ok(http::Response::builder().body(body).unwrap())
+//         };
+
+//         Box::pin(fut)
+//     }
+// }

@@ -2,7 +2,9 @@
 
 use std::{net::SocketAddr, sync::Arc};
 
+use adbc_core::{Connection as _, Statement as _};
 use bytes::Bytes;
+use duckdb::RecordBatchBody;
 use hyper::{server::conn::http2, service::service_fn};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
@@ -61,8 +63,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
 
+                let conn = conn.clone();
+
                 if let Err(err) = http2::Builder::new(TokioExecutor::new())
-                    .serve_connection(io, service_fn(handle_http2_request))
+                    .serve_connection(
+                        io,
+                        service_fn(move |req| async {
+                            let mut guard = conn.lock().await;
+
+                            let mut stmt = match guard.new_statement() {
+                                Ok(stmt) => stmt,
+                                Err(e) => todo!(),
+                            };
+
+                            match stmt.set_sql_query("FROM 'tmp.csv'") {
+                                Ok(_) => {}
+                                Err(e) => todo!(),
+                            };
+
+                            let record_batch_reader = match stmt.execute() {
+                                Ok(result) => result,
+                                Err(e) => todo!(),
+                            };
+
+                            let body = RecordBatchBody {
+                                reader: Box::new(record_batch_reader),
+                            };
+
+                            let response = http::Response::builder().body(body).unwrap();
+
+                            Ok(response)
+                        }),
+                    )
                     .await
                 {
                     eprintln!("Error serving connection: {}", err);
