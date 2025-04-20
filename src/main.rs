@@ -64,23 +64,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Err(err) = http2::Builder::new(TokioExecutor::new())
                     .serve_connection(
                         io,
-                        service_fn(move |req| async {
+                        service_fn(|req| async move {
+                            if req.uri().path() != "/" {
+                                return Ok::<_, std::convert::Infallible>(simple_error(404));
+                            }
+
                             let conn = duckdb::get_duckdb_connection().unwrap();
                             let mut guard = conn.lock().await;
 
                             let mut stmt = match guard.new_statement() {
                                 Ok(stmt) => stmt,
-                                Err(e) => todo!(),
+                                Err(e) => {
+                                    info!("Error: {e:?}");
+                                    return Ok::<_, std::convert::Infallible>(simple_error(503));
+                                }
                             };
 
                             match stmt.set_sql_query("FROM 'tmp.csv'") {
                                 Ok(_) => {}
-                                Err(e) => todo!(),
+                                Err(e) => {
+                                    info!("Error: {e:?}");
+                                    return Ok::<_, std::convert::Infallible>(simple_error(503));
+                                }
                             };
 
                             let record_batch_reader = match stmt.execute() {
                                 Ok(result) => result,
-                                Err(e) => todo!(),
+                                Err(e) => {
+                                    info!("Error: {e:?}");
+                                    return Ok::<_, std::convert::Infallible>(simple_error(503));
+                                }
                             };
 
                             let mut result_bytes = 0usize;
@@ -91,7 +104,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         result_bytes += b.get_array_memory_size();
                                         batches.push(b);
                                     }
-                                    Err(e) => todo!(),
+                                    Err(e) => {
+                                        info!("Error: {e:?}");
+                                        return Ok::<_, std::convert::Infallible>(simple_error(
+                                            503,
+                                        ));
+                                    }
                                 }
                             }
 
@@ -116,54 +134,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-struct Hello<I: Iterator<Item = Bytes>> {
-    msg: I,
-}
-
-// In order to use self.msg as ref mut, this is necessary.
-impl<I: Iterator<Item = Bytes>> Unpin for Hello<I> {}
-
-impl<I: Iterator<Item = Bytes>> hyper::body::Body for Hello<I> {
-    type Data = Bytes;
-
-    type Error = std::convert::Infallible;
-
-    fn poll_frame(
-        mut self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
-        match self.msg.next() {
-            Some(bytes) => std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(bytes)))),
-            None => std::task::Poll::Ready(None),
-        }
-    }
-}
-
-impl<I: Iterator<Item = Bytes>> Hello<I> {
-    fn new(msg: I) -> Self {
-        Self { msg }
-    }
-}
-
-async fn handle_http2_request(
-    req: http::Request<hyper::body::Incoming>,
-) -> Result<http::Response<Hello<std::vec::IntoIter<bytes::Bytes>>>, std::convert::Infallible> {
-    if req.uri().path() != "/" {
-        let body = Hello::new(vec![].into_iter());
-        let response = http::Response::builder().status(404).body(body).unwrap();
-        return Ok(response);
-    }
-
-    let body = Hello::new(
-        vec![
-            Bytes::from_static(b"Hello, "),
-            Bytes::from_static(b"world "),
-            Bytes::from_static(b"of HTTP/2!"),
-        ]
-        .into_iter(),
-    );
-
-    let response = http::Response::builder().body(body).unwrap();
-
-    Ok(response)
+fn simple_error(status_code: u16) -> http::Response<RecordBatchBody> {
+    http::Response::builder()
+        .status(status_code)
+        .body(RecordBatchBody::empty_body())
+        .unwrap()
 }

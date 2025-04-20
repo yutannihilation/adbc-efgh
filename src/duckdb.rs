@@ -3,13 +3,8 @@ use std::{
     vec::IntoIter,
 };
 
-use adbc_core::{
-    Connection as _, Database as _, Driver as _, Statement as _, driver_manager::ManagedConnection,
-};
-use arrow::{
-    array::{RecordBatch, RecordBatchReader},
-    record_batch,
-};
+use adbc_core::{Database as _, Driver as _, driver_manager::ManagedConnection};
+use arrow::array::RecordBatch;
 use arrow_ipc::writer::StreamWriter;
 use tokio::sync::Mutex;
 
@@ -70,6 +65,15 @@ pub struct RecordBatchBody {
     pub batches: IntoIter<RecordBatch>,
 }
 
+impl RecordBatchBody {
+    pub fn empty_body() -> Self {
+        Self {
+            result_bytes: 0,
+            batches: vec![].into_iter(),
+        }
+    }
+}
+
 impl hyper::body::Body for RecordBatchBody {
     type Data = bytes::Bytes;
 
@@ -85,6 +89,8 @@ impl hyper::body::Body for RecordBatchBody {
                 let mut bytes: Vec<u8> = Vec::with_capacity(batch.get_array_memory_size());
                 let mut writer = StreamWriter::try_new(&mut bytes, &*batch.schema()).unwrap();
                 writer.write(&batch)?;
+                writer.flush()?;
+                writer.finish()?;
                 drop(writer);
 
                 std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(bytes.into()))))
