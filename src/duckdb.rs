@@ -1,4 +1,5 @@
 use std::{
+    io::Read,
     sync::{Arc, OnceLock},
     vec::IntoIter,
 };
@@ -6,6 +7,10 @@ use std::{
 use adbc_core::{Database as _, Driver as _, driver_manager::ManagedConnection};
 use arrow::array::RecordBatch;
 use arrow_ipc::writer::StreamWriter;
+use ringbuf::{
+    CachingProd, HeapCons, HeapProd, HeapRb, SharedRb,
+    traits::{Consumer, Producer, Split},
+};
 use tokio::sync::Mutex;
 
 static DUCKDB_CONN: OnceLock<Arc<Mutex<ManagedConnection>>> = OnceLock::new();
@@ -61,15 +66,33 @@ pub(crate) fn get_duckdb_connection()
 pub struct RecordBatchBody {
     // batches: Vec<RecordBatch>,
     // pub reader: Box<dyn RecordBatchReader + Send>,
-    pub result_bytes: usize,
+    pub writer: StreamWriter<HeapProd<u8>>,
+    pub reader: HeapCons<u8>,
     pub batches: IntoIter<RecordBatch>,
 }
 
 impl RecordBatchBody {
     pub fn empty_body() -> Self {
+        todo!()
+        // Self {
+        //     buf: vec![],
+        //     batches: vec![].into_iter(),
+        // }
+    }
+
+    pub fn new(buffer_size: usize, batches: Vec<RecordBatch>) -> Self {
+        let schema = &*batches[0].schema();
+        let batches = batches.into_iter();
+
+        let rb = Arc::new(HeapRb::<u8>::new(buffer_size));
+        let (prod, cons) = rb.split();
+
+        let writer = StreamWriter::try_new(prod, schema).unwrap();
+
         Self {
-            result_bytes: 0,
-            batches: vec![].into_iter(),
+            writer,
+            reader: cons,
+            batches,
         }
     }
 }
@@ -85,15 +108,25 @@ impl hyper::body::Body for RecordBatchBody {
     ) -> std::task::Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
         match self.batches.next() {
             Some(batch) => {
-                // TODO: this is super inefficient to create a buffer and writer for every record batch, but let's start from here...
-                let mut bytes: Vec<u8> = Vec::with_capacity(batch.get_array_memory_size());
-                let mut writer = StreamWriter::try_new(&mut bytes, &*batch.schema()).unwrap();
-                writer.write(&batch)?;
-                writer.flush()?;
-                writer.finish()?;
-                drop(writer);
+                let size = batch.get_array_memory_size();
 
-                std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(bytes.into()))))
+                // Assuming this isn't buffered, so no flush is needed.
+                self.writer.write(&batch)?;
+
+                let (left, right) = self.reader.as_slices();
+                let bytes = if left.len() >= size {
+                    bytes::Bytes::copy_from_slice(&left[..size])
+                } else {
+                    let size_rest = size - left.len();
+                    let both = [left, &right[..size_rest]].concat();
+                    bytes::Bytes::from(both)
+                };
+
+                unsafe {
+                    self.reader.advance_read_index(size);
+                }
+
+                std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(bytes))))
             }
             None => std::task::Poll::Ready(None),
         }
